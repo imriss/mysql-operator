@@ -164,9 +164,15 @@ func initFileQuery(cfg *Config, gtidPurged string) []byte {
 		[]string{"SELECT"}, "mysql.slave_master_info",
 		[]string{"SELECT", "CREATE"}, fmt.Sprintf("%s.%s", toolsDbName, toolsHeartbeatTableName))...)
 
-	// configure replication user
-	queries = append(queries, createUserQuery(cfg.ReplicationUser, cfg.ReplicationPassword, "%",
-		[]string{"SELECT", "PROCESS", "RELOAD", "LOCK TABLES", "REPLICATION CLIENT", "REPLICATION SLAVE"}, "*.*")...)
+	// configure replication user - Reza
+        replPermissions := []string{"SELECT", "PROCESS", "RELOAD", "LOCK TABLES", "REPLICATION CLIENT", "REPLICATION SLAVE"}
+        if cfg.MySQLVersion.Major == 8 {
+                // if it's a mysql 8 then the backup user needs BACKUP_ADMIN permissions to take backups
+                replPermissions = append(replPermissions, "BACKUP_ADMIN")
+        }
+        queries = append(queries, createUserQuery(cfg.ReplicationUser, cfg.ReplicationPassword, "%",
+                replPermissions, "*.*")...)
+
 
 	// configure metrics exporter user
 	queries = append(queries, createUserQuery(cfg.MetricsUser, cfg.MetricsPassword, "127.0.0.1",
