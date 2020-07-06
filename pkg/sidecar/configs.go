@@ -17,208 +17,213 @@ limitations under the License.
 package sidecar
 
 import (
-	"fmt"
-	"net"
-	"os"
-	"strconv"
-	"strings"
-	"time"
+        "fmt"
+        "net"
+        "os"
+        "strconv"
+        "strings"
+        "time"
 
-	// add mysql driver
-	_ "github.com/go-sql-driver/mysql"
+        // add mysql driver
+        _ "github.com/go-sql-driver/mysql"
 
-	"github.com/presslabs/controller-util/rand"
+        "github.com/blang/semver"
+        "github.com/presslabs/controller-util/rand"
 
-	"github.com/presslabs/mysql-operator/pkg/internal/mysqlcluster"
+        "github.com/presslabs/mysql-operator/pkg/internal/mysqlcluster"
 )
 
 // Config contains information related with the pod.
 type Config struct {
-	// Hostname represents the pod hostname
-	Hostname string
-	// ClusterName is the MySQL cluster name
-	ClusterName string
-	// Namespace represents the namespace where the pod is in
-	Namespace string
-	// ServiceName is the name of the headless service
-	ServiceName string
+        // Hostname represents the pod hostname
+        Hostname string
+        // ClusterName is the MySQL cluster name
+        ClusterName string
+        // Namespace represents the namespace where the pod is in
+        Namespace string
+        // ServiceName is the name of the headless service
+        ServiceName string
 
-	// InitBucketURL represents the init bucket to initialize mysql
-	InitBucketURL string
+        // InitBucketURL represents the init bucket to initialize mysql
+        InitBucketURL string
 
-	// OperatorUser represents the credentials that the operator will use to connect to the mysql
-	OperatorUser     string
-	OperatorPassword string
+        // OperatorUser represents the credentials that the operator will use to connect to the mysql
+        OperatorUser     string
+        OperatorPassword string
 
-	// backup user and password for http endpoint
-	BackupUser     string
-	BackupPassword string
+        // backup user and password for http endpoint
+        BackupUser     string
+        BackupPassword string
 
-	// replication user and password
-	ReplicationUser     string
-	ReplicationPassword string
+        // replication user and password
+        ReplicationUser     string
+        ReplicationPassword string
 
-	// metrics exporter user and password
-	MetricsUser     string
-	MetricsPassword string
+        // metrics exporter user and password
+        MetricsUser     string
+        MetricsPassword string
 
-	// orchestrator credentials
-	OrchestratorUser     string
-	OrchestratorPassword string
+        // orchestrator credentials
+        OrchestratorUser     string
+        OrchestratorPassword string
 
-	// heartbeat credentials
-	HeartBeatUser     string
-	HeartBeatPassword string
+        // heartbeat credentials
+        HeartBeatUser     string
+        HeartBeatPassword string
 
-	// ExistsMySQLData checks if MySQL data is initialized by checking if the mysql dir exists
-	ExistsMySQLData bool
+        // ExistsMySQLData checks if MySQL data is initialized by checking if the mysql dir exists
+        ExistsMySQLData bool
 
-	// Offset for assigning MySQL Server ID
-	MyServerIDOffset int
+        // MySQLVersion represents the current mysql version
+        MySQLVersion semver.Version
+
+        // Offset for assigning MySQL Server ID
+        MyServerIDOffset int
 }
 
 // FQDNForServer returns the pod hostname for given MySQL server id
 func (cfg *Config) FQDNForServer(id int) string {
-	base := mysqlcluster.GetNameForResource(mysqlcluster.StatefulSet, cfg.ClusterName)
-	return fmt.Sprintf("%s-%d.%s.%s", base, id-cfg.MyServerIDOffset, cfg.ServiceName, cfg.Namespace)
+        base := mysqlcluster.GetNameForResource(mysqlcluster.StatefulSet, cfg.ClusterName)
+        return fmt.Sprintf("%s-%d.%s.%s", base, id-cfg.MyServerIDOffset, cfg.ServiceName, cfg.Namespace)
 }
 
 // ClusterFQDN returns the cluster FQ Name of the cluster from which the node belongs
 func (cfg *Config) ClusterFQDN() string {
-	return fmt.Sprintf("%s.%s", cfg.ClusterName, cfg.Namespace)
+        return fmt.Sprintf("%s.%s", cfg.ClusterName, cfg.Namespace)
 }
 
 // MasterFQDN the FQ Name of the cluster's master
 func (cfg *Config) MasterFQDN() string {
-	return mysqlcluster.GetNameForResource(mysqlcluster.MasterService, cfg.ClusterName)
+        return mysqlcluster.GetNameForResource(mysqlcluster.MasterService, cfg.ClusterName)
 }
 
 // ServerID returns the MySQL server id
 func (cfg *Config) ServerID() int {
-	ordinal := getOrdinalFromHostname(cfg.Hostname)
-	return ordinal + cfg.MyServerIDOffset
+        ordinal := getOrdinalFromHostname(cfg.Hostname)
+        return ordinal + cfg.MyServerIDOffset
 }
 
 // MysqlDSN returns the connection string to MySQL server
 func (cfg *Config) MysqlDSN() string {
-	return fmt.Sprintf("%s:%s@tcp(127.0.0.1:%s)/?timeout=5s&multiStatements=true&interpolateParams=true",
-		cfg.OperatorUser, cfg.OperatorPassword, mysqlPort,
-	)
+        return fmt.Sprintf("%s:%s@tcp(127.0.0.1:%s)/?timeout=5s&multiStatements=true&interpolateParams=true",
+                cfg.OperatorUser, cfg.OperatorPassword, mysqlPort,
+        )
 }
 
 // ShouldCloneFromBucket returns true if it's time to initialize from a bucket URL provided
 func (cfg *Config) ShouldCloneFromBucket() bool {
-	return !cfg.ExistsMySQLData && cfg.ServerID() == cfg.MyServerIDOffset && len(cfg.InitBucketURL) != 0
+        return !cfg.ExistsMySQLData && cfg.ServerID() == cfg.MyServerIDOffset && len(cfg.InitBucketURL) != 0
 }
 
 // NewConfig returns a pointer to Config configured from environment variables
 func NewConfig() *Config {
-	var (
-		err          error
-		hbPass       string
-		eData        bool
-		offset       int
-		customOffset string
-	)
+        var (
+                err          error
+                hbPass       string
+                eData        bool
+                offset       int
+                customOffset string
+        )
 
-	if hbPass, err = rand.AlphaNumericString(10); err != nil {
-		panic(err)
-	}
+        if hbPass, err = rand.AlphaNumericString(10); err != nil {
+                panic(err)
+        }
 
-	if eData, err = checkIfDataExists(); err != nil {
-		panic(err)
-	}
+        if eData, err = checkIfDataExists(); err != nil {
+                panic(err)
+        }
 
-	offset = MysqlServerIDOffset
-	customOffset = getEnvValue("MY_SERVER_ID_OFFSET")
-	if len(customOffset) != 0 {
-		if offset, err = strconv.Atoi(customOffset); err != nil {
-			offset = MysqlServerIDOffset
-		}
-	}
+        offset = MysqlServerIDOffset
+        customOffset = getEnvValue("MY_SERVER_ID_OFFSET")
+        if len(customOffset) != 0 {
+                if offset, err = strconv.Atoi(customOffset); err != nil {
+                        offset = MysqlServerIDOffset
+                }
+        }
 
-	cfg := &Config{
-		Hostname:    getEnvValue("HOSTNAME"),
-		ClusterName: getEnvValue("MY_CLUSTER_NAME"),
-		Namespace:   getEnvValue("MY_NAMESPACE"),
-		ServiceName: getEnvValue("MY_SERVICE_NAME"),
+        cfg := &Config{
+                Hostname:    getEnvValue("HOSTNAME"),
+                ClusterName: getEnvValue("MY_CLUSTER_NAME"),
+                Namespace:   getEnvValue("MY_NAMESPACE"),
+                ServiceName: getEnvValue("MY_SERVICE_NAME"),
 
-		InitBucketURL: getEnvValue("INIT_BUCKET_URI"),
+                InitBucketURL: getEnvValue("INIT_BUCKET_URI"),
 
-		OperatorUser:     getEnvValue("OPERATOR_USER"),
-		OperatorPassword: getEnvValue("OPERATOR_PASSWORD"),
+                OperatorUser:     getEnvValue("OPERATOR_USER"),
+                OperatorPassword: getEnvValue("OPERATOR_PASSWORD"),
 
-		BackupUser:     getEnvValue("BACKUP_USER"),
-		BackupPassword: getEnvValue("BACKUP_PASSWORD"),
+                BackupUser:     getEnvValue("BACKUP_USER"),
+                BackupPassword: getEnvValue("BACKUP_PASSWORD"),
 
-		ReplicationUser:     getEnvValue("REPLICATION_USER"),
-		ReplicationPassword: getEnvValue("REPLICATION_PASSWORD"),
+                ReplicationUser:     getEnvValue("REPLICATION_USER"),
+                ReplicationPassword: getEnvValue("REPLICATION_PASSWORD"),
 
-		MetricsUser:     getEnvValue("METRICS_EXPORTER_USER"),
-		MetricsPassword: getEnvValue("METRICS_EXPORTER_PASSWORD"),
+                MetricsUser:     getEnvValue("METRICS_EXPORTER_USER"),
+                MetricsPassword: getEnvValue("METRICS_EXPORTER_PASSWORD"),
 
-		OrchestratorUser:     getEnvValue("ORC_TOPOLOGY_USER"),
-		OrchestratorPassword: getEnvValue("ORC_TOPOLOGY_PASSWORD"),
+                OrchestratorUser:     getEnvValue("ORC_TOPOLOGY_USER"),
+                OrchestratorPassword: getEnvValue("ORC_TOPOLOGY_PASSWORD"),
 
-		HeartBeatUser:     heartBeatUserName,
-		HeartBeatPassword: hbPass,
+                HeartBeatUser:     heartBeatUserName,
+                HeartBeatPassword: hbPass,
 
-		ExistsMySQLData: eData,
+                ExistsMySQLData: eData,
 
-		MyServerIDOffset: offset,
-	}
+                MySQLVersion: semver.MustParse(getEnvValue("MY_MYSQL_VERSION")),
+                MyServerIDOffset: offset,
+        }
 
-	return cfg
+        return cfg
 }
 
 func getEnvValue(key string) string {
-	value := os.Getenv(key)
-	if len(value) == 0 {
-		log.Info("environment is not set", "key", key)
-	}
+        value := os.Getenv(key)
+        if len(value) == 0 {
+                log.Info("environment is not set", "key", key)
+        }
 
-	return value
+        return value
 }
 
 func getOrdinalFromHostname(hn string) int {
-	// mysql-master-1
-	// or
-	// stateful-ceva-3
-	l := strings.Split(hn, "-")
-	for i := len(l) - 1; i >= 0; i-- {
-		if o, err := strconv.ParseInt(l[i], 10, 8); err == nil {
-			return int(o)
-		}
-	}
+        // mysql-master-1
+        // or
+        // stateful-ceva-3
+        l := strings.Split(hn, "-")
+        for i := len(l) - 1; i >= 0; i-- {
+                if o, err := strconv.ParseInt(l[i], 10, 8); err == nil {
+                        return int(o)
+                }
+        }
 
-	return 0
+        return 0
 }
 
 // retryLookupHost tries to figure out a host IPs with retries
 func retryLookupHost(host string) ([]string, error) {
-	// try to find the host IP
-	IPs, err := net.LookupHost(host)
-	for count := 0; count < 20 && err != nil; count++ {
-		// retry looking up for ip because first query failed
-		IPs, err = net.LookupHost(host)
-		// sleep 100 milliseconds
-		time.Sleep(100 * time.Millisecond)
-	}
+        // try to find the host IP
+        IPs, err := net.LookupHost(host)
+        for count := 0; count < 20 && err != nil; count++ {
+                // retry looking up for ip because first query failed
+                IPs, err = net.LookupHost(host)
+                // sleep 100 milliseconds
+                time.Sleep(100 * time.Millisecond)
+        }
 
-	return IPs, err
+        return IPs, err
 }
 
 // nolint: gosec
 func checkIfDataExists() (bool, error) {
-	path := fmt.Sprintf("%s/mysql", dataDir)
-	_, err := os.Open(path)
+        path := fmt.Sprintf("%s/mysql", dataDir)
+        _, err := os.Open(path)
 
-	if os.IsNotExist(err) {
-		return false, nil
-	} else if err != nil {
-		log.Error(err, "failed to open file", "file", path)
-		return false, err
-	}
+        if os.IsNotExist(err) {
+                return false, nil
+        } else if err != nil {
+                log.Error(err, "failed to open file", "file", path)
+                return false, err
+        }
 
-	return true, nil
+        return true, nil
 }
