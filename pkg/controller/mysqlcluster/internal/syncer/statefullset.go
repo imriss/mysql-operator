@@ -98,6 +98,9 @@ func (s *sfsSyncer) SyncFn(in runtime.Object) error {
 	out.Spec.Selector = metav1.SetAsLabelSelector(s.cluster.GetSelectorLabels())
 	out.Spec.ServiceName = s.cluster.GetNameForResource(mysqlcluster.HeadlessSVC)
 
+	// // ensure metadata
+	// out.MetaData.Labels = s.getLabels(s.cluster.Spec.PodSpec.Labels)
+
 	// ensure template
 	out.Spec.Template.ObjectMeta.Labels = s.getLabels(s.cluster.Spec.PodSpec.Labels)
 	out.Spec.Template.ObjectMeta.Annotations = s.cluster.Spec.PodSpec.Annotations

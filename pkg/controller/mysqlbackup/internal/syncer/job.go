@@ -167,6 +167,10 @@ func (s *jobSyncer) ensurePodSpec(in core.PodSpec) core.PodSpec {
 				},
 			},
 		},
+		{
+			Name: "MY_MYSQL_VERSION",
+                        Value: s.cluster.GetMySQLSemVer().String(),
+		},
 	}
 
 	if len(s.backup.Spec.BackupSecretName) != 0 {
